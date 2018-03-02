@@ -28,6 +28,8 @@ public:
         n.param("md49/timeout", initial_md49_timeout, true);                                    // Get MD49 Timeout from ROS Parameter sevice, default is Timeout=ON
         n.param("md49/speed_l", requested_speed_l, 128);                                        // Get MD49 speed_l from ROS Parameter sevice, default is speed_l=128
         n.param("md49/speed_r",  requested_speed_r, 128);                                       // Get MD49 speed_r from ROS Parameter sevice, default is speed_r=128
+        //n.param("md49/wheel_dia",  wheel_diameter_, 0.0);                                 // Get wheel diameter
+        //n.param("md49/wheel_dist",  wheel_distance_, 0.0);                                 // Get distance between wheels
         actual_speed_l=requested_speed_l;
         actual_speed_r=requested_speed_r;
       }
@@ -37,12 +39,12 @@ public:
      * @param vel_cmd
      */
     void cmd_vel_callback(const geometry_msgs::Twist& vel_cmd){
-    
-	//TO-DO set parameters in launch file, correct scale factor
-	double wheel_diameter_ = 0.122;
-	double wheel_distance_ = 0.338; 
-   	requested_speed_l = 128 + wheel_diameter_* (1 * vel_cmd.linear.x - 0.5 * wheel_distance_ * vel_cmd.angular.z) * (1000); //angular in radian/s
-      	requested_speed_r = 128 + wheel_diameter_* (1 * vel_cmd.linear.x + 0.5 * wheel_distance_ * vel_cmd.angular.z) * (1000);
+	// translation in m/s
+	// angular in radian/s
+	double wheel_diameter_ = 0.122;  
+	double wheel_distance_ = 0.338;  
+   	requested_speed_l = 128 + wheel_diameter_ * (1 * vel_cmd.linear.x - 0.5 * wheel_distance_ * vel_cmd.angular.z) * (1380); // 1380 calibration factor
+      	requested_speed_r = 128 + wheel_diameter_ * (1 * vel_cmd.linear.x + 0.5 * wheel_distance_ * vel_cmd.angular.z) * (1380);
 
         ROS_INFO("base_controller: Received /cmd_vel message. Requested speed_l=%i, speed_r=%i",requested_speed_l,requested_speed_r);
     }

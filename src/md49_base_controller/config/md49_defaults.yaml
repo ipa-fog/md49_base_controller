@@ -59,4 +59,10 @@ speed_l: 128,
 # With selected mode=0: 128=STOP
 # Accepted values with selected mode=0: 0(Full Reverse)-255(Full Forward)
 speed_r: 128,
+
+
+wheel_dia: 0.122,
+wheel_dist: 0.338,
+
+
 }
