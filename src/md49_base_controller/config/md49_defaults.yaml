@@ -22,7 +22,7 @@
 # Acceleration Rate
 # Accepted values: 1 up to 10
 # For details see docs/md49.pdf
-acceleration: 5,
+acceleration: 3,
 ###################
 #/md49/mode
 ###################
