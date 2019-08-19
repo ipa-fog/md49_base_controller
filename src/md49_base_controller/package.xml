@@ -22,6 +22,13 @@
   <build_depend>std_msgs</build_depend>
   <build_depend>md49_messages</build_depend>
   <build_depend>md49_serialport</build_depend>
+
+  <build_depend>nav_msgs</build_depend>
+  <build_depend>geometry_msgs</build_depend>
+  <build_depend>tf2_msgs</build_depend>
+  <build_depend>tf</build_depend>
+
+
   <run_depend>message_runtime</run_depend>
   <run_depend>geometry_msgs</run_depend>
   <run_depend>roscpp</run_depend>
@@ -29,6 +36,12 @@
   <run_depend>std_msgs</run_depend>
   <run_depend>md49_messages</run_depend>
   <run_depend>md49_serialport</run_depend>
+
+  <run_depend>nav_msgs</run_depend>
+  <run_depend>geometry_msgs</run_depend>
+  <run_depend>tf2_msgs</run_depend>
+  <run_depend>tf</run_depend>
+  <run_depend>tf2_geometry_msgs</run_depend>
 
   <export>
   </export>

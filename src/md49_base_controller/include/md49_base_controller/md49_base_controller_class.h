@@ -3,6 +3,17 @@
 
 #define TIMEOUT 1000                                                                            /**<  timeout for reading serialport in ms */
 
+#include <ros/ros.h>
+#include <tf/transform_broadcaster.h>
+#include <nav_msgs/Odometry.h>
+#include <tf/transform_listener.h>
+#include "geometry_msgs/TransformStamped.h"
+#include <geometry_msgs/PoseWithCovarianceStamped.h>
+
+#include <math.h>
+#define wheel_diameter 0.125
+#define wheel_baseline 0.338
+
 class BaseController
 {
 public:
@@ -15,19 +26,22 @@ public:
     BaseController()
       {
         // Topics to publish
-        md49_encoders_pub = n.advertise<md49_messages::md49_encoders>("md49_encoders",10);
-        md49_data_pub = n.advertise<md49_messages::md49_data>("md49_data",10);
+        md49_encoders_pub = n.advertise<md49_messages::md49_encoders>("md49_encoders",1);
+        md49_odom_pub = n.advertise<nav_msgs::Odometry>("odom",1);
+        md49_data_pub = n.advertise<md49_messages::md49_data>("md49_data",1);
         // Topic to subscribe
         sub_cmd_vel = n.subscribe("/cmd_vel", 1, &BaseController::cmd_vel_callback, this);
         // Read initial parameters from parameter service
         n.param<std::string>("serialport/name", serialport, "/dev/ttyS0");                      // Get serialportname from ROS Parameter sevice, default is ttyS0 (pcDuinos GPIO UART)
         n.param("serialport/bps", serialport_bps, 38400);                                       // Get serialport bps from ROS Parameter sevice, default is 38400Bps
-        n.param("md49/mode", initial_md49_mode, 0);                                             // Get MD49 Mode from ROS Parameter sevice, default is Mode=0
+        n.param("md49/mode", initial_md49_mode, 1);                                             // Get MD49 Mode from ROS Parameter sevice, default is Mode=0
         n.param("md49/acceleration", initial_md49_acceleration, 5);                             // Get MD49 Acceleration from ROS Parameter sevice, default is Acceleration=0
         n.param("md49/regulator", initial_md49_regulator, true);                                // Get MD49 Regulator from ROS Parameter sevice, default is Regulator=ON
         n.param("md49/timeout", initial_md49_timeout, true);                                    // Get MD49 Timeout from ROS Parameter sevice, default is Timeout=ON
         n.param("md49/speed_l", requested_speed_l, 128);                                        // Get MD49 speed_l from ROS Parameter sevice, default is speed_l=128
         n.param("md49/speed_r",  requested_speed_r, 128);                                       // Get MD49 speed_r from ROS Parameter sevice, default is speed_r=128
+        //n.param("md49/wheel_dia",  wheel_diameter_, 0.0);                                 // Get wheel diameter
+        //n.param("md49/wheel_dist",  wheel_distance_, 0.0);                                 // Get distance between wheels
         actual_speed_l=requested_speed_l;
         actual_speed_r=requested_speed_r;
       }
@@ -37,24 +51,123 @@ public:
      * @param vel_cmd
      */
     void cmd_vel_callback(const geometry_msgs::Twist& vel_cmd){
-        // Drive For- or Backward:
-        if (vel_cmd.linear.x != 0){
-            requested_speed_l = 128+(635*vel_cmd.linear.x);
-            requested_speed_r = 128+(635*vel_cmd.linear.x);
-        }
-        // Drive stopped:
-        if (vel_cmd.linear.x==0 && vel_cmd.angular.z==0){
-            requested_speed_l = 128;
-            requested_speed_r = 128;
-        }
-        // Turn clock- or counterclockwise:
-        if (vel_cmd.angular.z != 0){
-            requested_speed_l = 128 - (127*vel_cmd.angular.z);
-            requested_speed_r = 128 + (127*vel_cmd.angular.z);
-        }
+	// translation in m/s
+	// angular in radian/s
+	twist_time = ros::Time::now();
+   	requested_speed_l = 128 + (int)(wheel_diameter * (1 * vel_cmd.linear.x - 0.5 * wheel_baseline * vel_cmd.angular.z) * (1380.0)); // 1380 calibration factor
+      	requested_speed_r = 128 + (int)(wheel_diameter * (1 * vel_cmd.linear.x + 0.5 * wheel_baseline * vel_cmd.angular.z) * (1380.0));
 
-        ROS_INFO("base_controller: Received /cmd_vel message. Requested speed_l=%i, speed_r=%i",requested_speed_l,requested_speed_r);
     }
+
+
+    /**
+     * @brief This function publish odometry based on encoder values
+     */
+    void publish_odom()
+    {
+	// fist get encoder values which are the base of wheel odometry
+        //get_encoders();
+
+	// set current time
+	current_time = ros::Time::now();
+
+	double dl, dr;	
+	
+	// 1024 encoder steps = 1 turn
+	l1_ = md49_encoders.encoder_l * 0.001024 * M_PI * wheel_diameter;
+	r1_ = md49_encoders.encoder_r * 0.001024 * M_PI * wheel_diameter;
+
+	dl = l1_ - l0_;
+	dr = r1_ - r0_;
+
+	// moved between last and current loop/state
+	double dth, dx, dy;
+	dth = (dr - dl) / wheel_baseline;
+	dx = 0.5 * (dl + dr) * cos(dth + th0_);
+	dy = 0.5 * (dl + dr) * sin(dth + th0_);
+
+	// calculate new position
+	th1_ = th0_ + dth;
+	x1_ = x0_ + dx;	
+	y1_ = y0_ + dy;
+
+
+	// calculate velocity
+	double dt = (current_time - last_time).toSec();
+
+	vx_ = dx / dt;
+	vy_ = dy / dt;
+	vth_ = dth / dt;
+
+	if(dl > 2.0 || dr > 2.0) // sometimes the encoder bits return wrong values e.g. at EMCY
+	{
+		
+		ROS_WARN("huge jump detected, ignore last delta");
+		th1_ = th0_;
+		x1_ = x0_;	
+		y1_ = y0_;
+		vx_ = 0.0;
+		vy_ = 0.0;
+		vth_ = 0.0;
+		l1_ = l0_;
+		r1_ = r0_;
+	}
+
+	geometry_msgs::Quaternion odom_quat;
+	odom_quat = tf::createQuaternionMsgFromYaw(th1_);
+
+	// create new tf
+	static tf::TransformBroadcaster odom_broadcaster;
+    	geometry_msgs::TransformStamped odom_trans;
+	odom_trans.header.stamp = ros::Time::now();
+	odom_trans.header.frame_id = "odom_combined";
+	odom_trans.child_frame_id = "base_footprint";
+	odom_trans.transform.translation.x = x1_;
+	odom_trans.transform.translation.y = y1_;
+	odom_trans.transform.translation.z = 0.0;
+	odom_trans.transform.rotation = odom_quat;
+	odom_broadcaster.sendTransform(odom_trans);	
+
+	// create odometry msgs
+	nav_msgs::Odometry odom;
+	odom.header.stamp = ros::Time::now();
+	odom.header.frame_id = "odom_combined";
+	odom.child_frame_id = "base_footprint";
+	odom.pose.pose.position.x = x1_;
+	odom.pose.pose.position.y = y1_;
+	odom.pose.pose.position.z = 0.0;
+	odom.pose.pose.orientation = odom_quat;
+	odom.twist.twist.linear.x = vx_;
+	odom.twist.twist.linear.y = vy_;
+	odom.twist.twist.angular.z = vth_;
+
+	 
+	md49_odom_pub.publish(odom);
+	odom_broadcaster.sendTransform(odom_trans);
+	
+
+	// set last time
+	last_time = ros::Time::now();
+
+	// set last to new positon for next loop
+	th0_ = th1_;
+	x0_ = x1_;
+	y0_ = y1_;
+
+	l0_ = l1_;
+	r0_ = r1_;
+
+	double dt_twist = (ros::Time::now() - twist_time).toSec();
+
+	// stop if we get no new velocity (timeout)
+	if(dt_twist > 0.5) 
+	{
+		requested_speed_l = 128;
+	      	requested_speed_r = 128;
+	}
+	
+    }
+
 
     /**
      * @brief This function opens serial port MD49 is connected to
@@ -74,7 +187,7 @@ public:
      */
     void publish_encoders()
     {
-        get_encoders();
+	get_encoders();
         md49_encoders_pub.publish(md49_encoders);
     }
 
@@ -105,6 +218,7 @@ public:
      */
     void init_md49(int speed_l, int speed_r, int mode, int acceleration, bool timeout, bool regulator)
     {
+	reset_encoders();
         set_speed(speed_l,speed_r);
         set_mode(mode);
         set_acceleration(acceleration);
@@ -265,17 +379,20 @@ public:
         catch(cereal::TimeoutException& e){
             ROS_ERROR("base_controller: Timeout reading MD49 encodervalues!");
         }
+
+
         // ***************************************************
         // * Set all values of custom message /md49_encoders *
         // ***************************************************
-        md49_encoders.encoder_l = reply[0] << 24;                   // put together first encoder value
-        md49_encoders.encoder_l |= (reply[1] << 16);
-        md49_encoders.encoder_l |= (reply[2] << 8);
-        md49_encoders.encoder_l |= (reply[3]);
-        md49_encoders.encoder_r = reply[4] << 24;                   // put together second encoder value
-        md49_encoders.encoder_r |= (reply[5] << 16);
-        md49_encoders.encoder_r |= (reply[6] << 8);
-        md49_encoders.encoder_r |= (reply[7]);
+	
+	uint8_t ints[8];
+	for(int i=0; i<8; i++)
+	{
+		ints[i] = (uint8_t) reply[i];
+	}
+	md49_encoders.encoder_l = ((ints[0] << 24) + (ints[1] << 16) + (ints[2] << 8) + (ints[3] << 0));
+	md49_encoders.encoder_r = ((ints[4] << 24) + (ints[5] << 16) + (ints[6] << 8) + (ints[7] << 0));
+
         md49_encoders.encoderbyte1l=reply[0];
         md49_encoders.encoderbyte2l=reply[1];
         md49_encoders.encoderbyte3l=reply[2];
@@ -284,7 +401,11 @@ public:
         md49_encoders.encoderbyte2r=reply[5];
         md49_encoders.encoderbyte3r=reply[6];
         md49_encoders.encoderbyte4r=reply[7];
-        //ROS_INFO("Got this reply: %i,%i,%i,%i,%i,%i,%i,%i", reply[0], reply[1], reply[2],reply[3], reply[4], reply[5], reply[6], reply[7]);
+
+
+	publish_odom();
+
+
     }
     /**
      * @brief This function reads supply voltage from MD49
@@ -450,22 +571,48 @@ public:
 
 private:
 
-    cereal::CerealPort device;                                                                      /**<  serialport */
-    char reply[8];
-    int requested_speed_l, requested_speed_r;                                                       /**<  requested speed_l and speed_r for MD49 */
-    int actual_speed_l, actual_speed_r;                                                             /**<  buffers actual set speed_l and speed_r */
-    int initial_md49_mode;                                                                          /**<  MD49 Mode, is read from parameters server */
-    int initial_md49_acceleration;                                                                  /**<  MD49 Acceleration,  is read from parameters server */
-    bool initial_md49_timeout;                                                                      /**<  MD49 Timeout-Mode, is read from parameters server */
-    bool initial_md49_regulator;                                                                    /**<  MD40 Regulator-Mode , is read from parameters server */
-    std::string serialport;                                                                         /**<  used serialport on pcDuino, is read from parameters server */
-    int serialport_bps;                                                                             /**<  used baudrate, is read from parameters server */
-    //ros::NodeHandle n;
-    ros::Subscriber sub_cmd_vel;
-    md49_messages::md49_data md49_data;                                                           /**<  topic /md49_data */
-    md49_messages::md49_encoders md49_encoders;                                                   /**<  topic /md49_encoders */
-    ros::Publisher md49_encoders_pub;
-    ros::Publisher md49_data_pub;
+	cereal::CerealPort device;                                                                      /**<  serialport */
+	char reply[8];
+	int requested_speed_l, requested_speed_r;                                                       /**<  requested speed_l and speed_r for MD49 */
+	int actual_speed_l, actual_speed_r;                                                             /**<  buffers actual set speed_l and speed_r */
+	int initial_md49_mode;                                                                          /**<  MD49 Mode, is read from parameters server */
+	int initial_md49_acceleration;                                                                  /**<  MD49 Acceleration,  is read from parameters server */
+	bool initial_md49_timeout;                                                                      /**<  MD49 Timeout-Mode, is read from parameters server */
+	bool initial_md49_regulator;                                                                    /**<  MD40 Regulator-Mode , is read from parameters server */
+	std::string serialport;                                                                         /**<  used serialport on pcDuino, is read from parameters server */
+	int serialport_bps;                                                                             /**<  used baudrate, is read from parameters server */
+
+	double l0_ = 0.0;
+	double r0_ = 0.0;
+	double l1_ = 0.0;
+	double r1_ = 0.0;
+
+	// robot velocity
+	double vx_ = 0.0;
+	double vy_ = 0.0;
+	double vth_ = 0.0;
+
+	// last robot position
+	double x0_= 0.0;
+	double y0_ = 0.0;
+	double th0_ = 0.0;
+
+	// new robot position
+	double x1_= 0.0;
+	double y1_ = 0.0;
+	double th1_ = 0.0;
+
+	ros::Time twist_time;
+	ros::Time current_time;
+	ros::Time last_time;
+	ros::Subscriber sub_cmd_vel;
+
+	md49_messages::md49_data md49_data;                                                           /**<  topic /md49_data */
+	md49_messages::md49_encoders md49_encoders;                                                   /**<  topic /md49_encoders */
+
+	ros::Publisher md49_odom_pub;
+	ros::Publisher md49_encoders_pub;
+	ros::Publisher md49_data_pub;
 }; //End of class BaseController
 
 #endif

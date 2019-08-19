@@ -64,20 +64,19 @@ int main( int argc, char* argv[] ){
     // ************
     while(myBaseController.n.ok())
     {
-        // set speed on MD49 via UART as set through /cmd_vel if speed_l or speed_r changed since last cycle
-        if ((myBaseController.get_requested_speed_l() != myBaseController.get_actual_speed_l()) || (myBaseController.get_requested_speed_r() != myBaseController.get_actual_speed_r()))
-        {
-            myBaseController.set_speed(myBaseController.get_requested_speed_l(),myBaseController.get_requested_speed_r());
-            myBaseController.set_actual_speed_l(myBaseController.get_requested_speed_l());
-            myBaseController.set_actual_speed_r(myBaseController.get_requested_speed_r());
-            ROS_INFO("base_controller: Set speed_l=%i and speed_r=%i on MD49", myBaseController.get_requested_speed_l(), myBaseController.get_requested_speed_r());
-        }
+        // publish all the time
+        myBaseController.set_speed(myBaseController.get_requested_speed_l(),myBaseController.get_requested_speed_r());
+        myBaseController.set_actual_speed_l(myBaseController.get_requested_speed_l());
+        myBaseController.set_actual_speed_r(myBaseController.get_requested_speed_r());
+      //  ROS_INFO("base_controller: Set speed_l=%i and speed_r=%i on MD49", myBaseController.get_requested_speed_l(), myBaseController.get_requested_speed_r());
+
         // Read encoder- data from MD49 via UART and publish encoder values as read to topic /md49_encoders
         myBaseController.publish_encoders();
         // Read other- data from MD49 via UART and publish MD49 data as read to topic /md49_data
         myBaseController.publish_md49_data();
         // Loop
         ros::spinOnce();
+	//ros::Duration(0.2).sleep();
         loop_rate.sleep();
     }// end.mainloop
     return 1;

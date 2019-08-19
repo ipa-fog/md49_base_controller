@@ -18,8 +18,8 @@
     name="md49_base_controller" 
     pkg="md49_base_controller"   
     type="md49_base_controller"
-    required="true"
     output="screen"
+    respawn = "true"
   />
 
 </launch>
