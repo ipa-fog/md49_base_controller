@@ -25,5 +25,5 @@ bps: 38400,
 #use /dev/ttyAMA0 for Raspberry Pi
 #use /dev/ttyS0 for Banana Pi
 #use /dev/ttyS1 for pcDuino
-name: /dev/md49
+name: /dev/ttyTHS2
 }
