@@ -12,7 +12,7 @@
 
 #include <math.h>
 #define wheel_diameter 0.125
-#define wheel_baseline 0.338
+#define wheel_baseline 0.515
 
 class BaseController
 {
@@ -40,8 +40,6 @@ public:
         n.param("md49/timeout", initial_md49_timeout, true);                                    // Get MD49 Timeout from ROS Parameter sevice, default is Timeout=ON
         n.param("md49/speed_l", requested_speed_l, 128);                                        // Get MD49 speed_l from ROS Parameter sevice, default is speed_l=128
         n.param("md49/speed_r",  requested_speed_r, 128);                                       // Get MD49 speed_r from ROS Parameter sevice, default is speed_r=128
-        //n.param("md49/wheel_dia",  wheel_diameter_, 0.0);                                 // Get wheel diameter
-        //n.param("md49/wheel_dist",  wheel_distance_, 0.0);                                 // Get distance between wheels
         actual_speed_l=requested_speed_l;
         actual_speed_r=requested_speed_r;
       }
